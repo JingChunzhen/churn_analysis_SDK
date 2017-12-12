@@ -179,8 +179,7 @@ class Data_Analysis():
             FROM maidian ORDER BY user_id, relative_timestamp ASC"
 
         previous_userid = None
-        start_time = None
-        end_time = None
+        start_time = None        
         previous_relativetimestamp = None
         for row in c.execute(query_sql):
             user_id = row[0]
@@ -195,16 +194,13 @@ class Data_Analysis():
                 if op not in temp_dict:
                     temp_dict[op] = relative_timestamp
             else:
-                # 此时换了一个玩家
-                end_time = previous_relativetimestamp
+                # 此时换了一个玩家               
                 for op, rt in temp_dict.items():
                     if op not in self.op_stage:
-                        self.op_stage[op] = []
-                    if end_time - start_time == 0:
-                        pass
+                        self.op_stage[op] = []                    
                     else:
                         self.op_stage[op].append(
-                            (rt - start_time) * 1.0 / (end_time - start_time))
+                            (rt - start_time) * 1.0)
                 temp_dict = {}
                 start_time = relative_timestamp
                 temp_dict[op] = relative_timestamp
