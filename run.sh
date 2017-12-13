@@ -1,0 +1,1 @@
+python3 main.py -i ./data/an.db2 -d 1 -k f

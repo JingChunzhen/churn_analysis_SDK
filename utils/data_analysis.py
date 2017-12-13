@@ -11,28 +11,25 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 
 class Data_Analysis():
     '''
-    对数据库中玩家的动作信息进行分析
-    1.动作随后的时间间隔
-    2.动作的留存比， 即点击该动作流失的玩家数量与点击过该动作的玩家的数量的比值
-    3.动作的非流失玩家平均点击次数， 流失玩家平均点击次数
-    4.非流失玩家平均点击次数，流失玩家平均点击次数
-    5.动作属于游戏前期还是后期进行
-    6.动作随后时间间隔与动作留存比之间的pearson系数
+    data analysis for churn rate, interval of each op
+    the pearson between interval and churn rate 
+    and so on 
     '''
 
     def __init__(self, *file_in):
         '''
-        user_ops: 为玩家的动作序列
-        user_labels: 为玩家的标签
+        Args:
+            file_in: ops path (file), label path (pickle), sql file path (db file) 
         '''
         self.file_ops = file_in[0]
         self.file_labels = file_in[1]
         self.sql_in = file_in[2]
         with open(file_in[0], 'rb') as f_ops, open(file_in[1], 'rb') as f_label:
-            self.user_labels = pickle.load(f_label)  # 得到的是一个玩家的标签列表
+            self.user_labels = pickle.load(f_label)  # get a label list 1 for churned 0 for not churned 
         self.op_categories = set()
         self.op_churn = {}
         self.op_intervals = {}
+        self.op_median_intervals = {}
         self.op_clicks = {}
         self.op_stage = {}
         with open(self.file_ops, 'rb') as f_ops:
@@ -41,10 +38,13 @@ class Data_Analysis():
                 ops_list = ops.strip().split(' ')
                 [self.op_categories.add(op) for op in ops_list]
 
-    @property
     def statistics_op_churn(self):
         '''
-        计算动作留存比，即点击该动作之后流失的人数点击过该动作的人数的比值
+        Return:
+            (dict): key (string): the op's name, 
+            value (list, length is 2) 
+            [0] for how many user not churned when did this op
+            [1] for how many user churned when did this op
         '''
         with open(self.file_ops, 'rb') as f_ops:
             i = 0
@@ -52,13 +52,13 @@ class Data_Analysis():
                 ops = ops.decode('utf-8')
                 ops_list = ops.strip().split(' ')
                 if self.user_labels[i] == 0:
-                    # 多少个玩家做了这个动作而没有流失
+                    # how many user not churned at this op
                     for op in set(ops_list):
                         if op not in self.op_churn:
                             self.op_churn[op] = [0, 0]
                         self.op_churn[op][0] += 1
                 else:
-                    # 多少个玩家做了这个动作而流失
+                    # how many user churned at this op
                     for op in set(ops_list[:-1]):
                         if op not in self.op_churn:
                             self.op_churn[op] = [0, 0]
@@ -69,12 +69,14 @@ class Data_Analysis():
                 i += 1
         return self.op_churn
 
-    @property
     def statistics_op_clicks(self):
-        '''
-        计算每一个动作，非流失玩家的平均点击次数和流失玩家的平均点击次数之间的比值
-        还需要计算的是所有动作中非流失玩家的平均点击次数和流失玩家的平均点击次数之间的比值
-        # BUG 
+        '''        
+        Return:
+            (dict): key(string): op's name 
+            value (float list of length of 2):
+            [0] for the average clicks of the unchurned user,
+            [1] for the average clicks of the churned user
+
         '''
         sum_users = [0] * 2
         with open(self.file_ops, 'rb') as f_ops:
@@ -94,11 +96,10 @@ class Data_Analysis():
             self.op_clicks[k] = [a, b]
         return self.op_clicks
 
-    @property
     def statistics_op_avg_clicks_ratio(self):
         '''
         Return:
-            (float): 非流失玩家点击次数和流失玩家点击次数的比值
+            (float): ratio the total clilcks of unchurn user / the total clicks of churn user 
         '''
         total_clicks = [[], []]
         with open(self.file_ops, 'rb') as f_ops:
@@ -114,10 +115,11 @@ class Data_Analysis():
         total_clicks[1].remove(min(total_clicks[1]))
         return np.mean(total_clicks[0]) * 1.0 / np.mean(total_clicks[1])
 
-    @property
     def statistics_op_intervals(self):
         '''
-        卡点分析， 计算动作随后的时间间隔
+        Returns:
+            (dict): key (string): op's name, value (float): the mean interval of this op 
+            (dict): key (string): op's name, value (float): the median interval of this op  
         '''
         conn = sqlite3.connect(self.sql_in)
         c = conn.cursor()
@@ -134,7 +136,7 @@ class Data_Analysis():
             current_day = row[2]
             num_days_played = row[3]
             relative_timestamp = row[4]
-            # 计算时间间隔
+            # calculate the interval
             interval = relative_timestamp - previous_relativetimestamp
             if previous_userid == user_id:
                 if previous_op not in self.op_intervals:
@@ -147,19 +149,19 @@ class Data_Analysis():
             previous_op = op
 
         for k, intervals in self.op_intervals.items():
+            self.op_median_intervals[k] = np.median(intervals)
             if len(intervals) >= 10:
                 intervals.remove(max(intervals))
                 intervals.remove(max(intervals))
                 intervals.remove(min(intervals))
                 intervals.remove(min(intervals))
             self.op_intervals[k] = np.mean(intervals)
-        return self.op_intervals
+        return self.op_intervals, self.op_median_intervals
 
-    @property
     def statistics_op_avg_intervals(self):
         '''
-        Returns:
-            (float): 返回所有动作的平均时间间隔
+        Return:
+            (float): the mean of all the ops 
         '''
         intervals = []
         for _, interval in self.op_intervals.items():
@@ -168,10 +170,21 @@ class Data_Analysis():
         intervals.remove(min(intervals))
         return np.mean(intervals)
 
-    @property
+    def statistics_op_median_intervals(self):
+        '''
+        Return:
+            (float): the median of all the ops 
+        '''
+        intervals = []
+        for _, interval in self.op_intervals.items():
+            intervals.append(interval)
+        return np.median(intervals)
+
     def statistics_op_stage(self):
         '''
-        用来判断一个动作是游戏的前期还是后期动作
+        Return:
+            (dict): key (string): op's name 
+                value (float list): op's first occurrences 
         '''
         conn = sqlite3.connect(self.sql_in)
         c = conn.cursor()
@@ -179,8 +192,8 @@ class Data_Analysis():
             FROM maidian ORDER BY user_id, relative_timestamp ASC"
 
         previous_userid = None
-        start_time = None        
-        previous_relativetimestamp = None
+        start_time = None
+
         for row in c.execute(query_sql):
             user_id = row[0]
             op = row[1].strip().replace(' ', '')
@@ -191,28 +204,27 @@ class Data_Analysis():
                 temp_dict = {}
                 temp_dict[op] = relative_timestamp
             elif previous_userid == user_id:
+                # only the first occurrence of the ops will be record
                 if op not in temp_dict:
                     temp_dict[op] = relative_timestamp
             else:
-                # 此时换了一个玩家               
+                # the user changed                 
                 for op, rt in temp_dict.items():
                     if op not in self.op_stage:
-                        self.op_stage[op] = []                    
+                        self.op_stage[op] = []
                     else:
-                        self.op_stage[op].append(
-                            (rt - start_time) * 1.0)
+                        self.op_stage[op].append(rt - start_time)
                 temp_dict = {}
                 start_time = relative_timestamp
                 temp_dict[op] = relative_timestamp
 
-            previous_relativetimestamp = relative_timestamp
             previous_userid = user_id
         return self.op_stage
 
-    @property
     def statistics_pearson_clicks_intervals(self):
         '''
-        计算动作留存比和动作随后时间间隔之间的pearson系数
+        Return:
+            (float): the Pearson between the op's interval and the churn rate of this op
         '''
         churn_rates = []
         intervals = []
@@ -225,53 +237,27 @@ class Data_Analysis():
         s2 = pd.Series(churn_rates)
         return s1.corr(s2)
 
-    @property
     def statistics_pearson_clicks_stage(self):
         '''
-        计算非流失玩家和流失玩家点击次数的比值和动作阶段之间的pearson系数  
-        在temp文件中的玩家的动作序列是按照天分割之后的，而数据库中的文件涵盖了很多天的数据
-        所以二者中的动作种类数量是不一样的      
+        deprecated 
+        used for test
         '''
         stages = []
-        clicks = []        
+        clicks = []
 
-        for k, _ in self.op_clicks.items():
-            '''
-            为确保bug不出现，需要先遍历op_clicks而不是op_stage
-            因为op_stage是由所有数据库文件中的数据生成
-            '''
-            if self.op_clicks[k][1] == 0:                
+        for k, _ in self.op_clicks.items():            
+            if self.op_clicks[k][1] == 0:
                 clicks.append(-1)
             else:
-                clicks.append(self.op_clicks[k][0] * 1.0 / self.op_clicks[k][1])
+                clicks.append(self.op_clicks[k][0]
+                              * 1.0 / self.op_clicks[k][1])
 
             v = self.op_stage[k]
             if len(v) > 4:
                 v.remove(max(v))
                 v.remove(min(v))
             stages.append(np.mean(v) * 10)
-                        
+
         s1 = pd.Series(stages)
         s2 = pd.Series(clicks)
         return s1.corr(s2)
-
-    def draw(self):
-        from pyecharts import Line
-        line = Line("")
-        churn_rates = []
-        intervals = []
-        for k, v in self.op_churn.items():
-            churn_rate = v[1] * 1.0 / v[0]
-            churn_rates.append(churn_rate)
-            intervals.append(self.op_intervals[k])
-        attr = [_ for _ in range(len(intervals))]
-        churnrates = [rate * 1000 for rate in churn_rates]
-
-        new_intervals = [i for i in intervals[::10]]
-        new_churnrates = [c for c in churnrates[::10]]
-        attr = [i for i in range(0, len(intervals), 10)]
-        line = Line("")
-        line.add("动作随后时间间隔", attr, new_intervals)
-        line.add("动作留存比 * 1000", attr, new_churnrates)
-        line.show_config()
-        line.render()

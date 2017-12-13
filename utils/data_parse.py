@@ -10,11 +10,7 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 
 
 class Data_Parser(object):
-    '''
-    数据解析
-    1.对玩家的操作动作序列按天分割，以分析首留玩家，次留玩家，三留玩家
-    2.对分割之后的动作序列进行tfidf特征提取
-    '''
+
     def __init__(self, sql_file):
         self.sql_in = sql_file
         self.fc_user_ops = {}
@@ -25,14 +21,17 @@ class Data_Parser(object):
         self.tc_user_label = {}
         pass
 
-    def parse(self):        
+    def parse(self):
+        '''
+        The player's operation sequence is divided by day to analyze the churn in the first, second, third days. 
+        '''
         conn = sqlite3.connect(self.sql_in)
         c = conn.cursor()
         query_sql = "SELECT user_id, op, current_day, num_days_played, relative_timestamp \
             FROM maidian ORDER BY user_id, relative_timestamp ASC"
         for row in c.execute(query_sql):
             user_id = row[0]
-            op = row[1].strip().replace(" ", '') 
+            op = row[1].strip().replace(" ", '')
             current_day = row[2]
             num_days_played = row[3]
 
@@ -80,7 +79,7 @@ class Data_Parser(object):
 
     def load_tfidf(self, *file_in, minimum_support=5, sample_rate=0, method='tfidf'):
         '''
-        对得到的数据进行tf-idf特征处理
+        get the tfidf of the op's sequence 
         Args:
             file_in: training data and label data
             minimum_support (int): minimum count for op
@@ -139,7 +138,7 @@ class Data_Parser(object):
 
         if method.lower() == 'count':
             X = vectorizer.fit_transform(
-                new_corpus).toarray()  # 该步骤仅仅取得了动作的计数而不是比值的大小
+                new_corpus).toarray()  #
         elif method.lower() == 'tfidf':
             transformer = TfidfTransformer()
             tfidf = transformer.fit_transform(
@@ -147,7 +146,5 @@ class Data_Parser(object):
             X = tfidf.toarray()
         Y = new_labels
         op = vectorizer.get_feature_names()
-        
-        # 此时需要对
+
         return X, Y, op
-    
