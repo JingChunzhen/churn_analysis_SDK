@@ -32,7 +32,7 @@ class Main():
         self.y = None
         self.op = None
 
-        # training data generate 
+        # training data generate
         self._load_data()
         self.da = Data_Analysis(
             self.training_data[self.day], self.training_label[self.day], self.sql_in)
@@ -42,6 +42,10 @@ class Main():
         self.op_intervals = temp_intervals[0]
         self.op_median_intervals = temp_intervals[1]
         self.op_stages = self.da.statistics_op_stage()
+
+        # new dict         
+        self.op_verbose = {}
+        # end of new dict 
 
         self.key_ops = None
 
@@ -69,24 +73,41 @@ class Main():
         print(len(xgb.key_ops))
         self.key_ops = xgb.key_ops
 
+    def _get_op_berbose(self):
+        '''
+        '''
+        import xlrd        
+        data = xlrd.open_workbook('./data/动作说明.xlsx')
+        table = data.sheet_by_name('Sheet1')
+
+        nrows = table.nrows
+        
+        for i in range(nrows):
+            line = table.row_values(i)
+            if line[0] not in self.op_verbose:
+                self.op_verbose[line[0]] = line[1]                
+
     def ops_analysis(self):
         self._get_key_ops()
+        self._get_op_berbose()
         sorted_keyops = np.argsort(self.key_ops)
         print(len(self.key_ops))
 
         st_op_churn = {}
         st_op_clicks = {}
         st_op_stage = {}
+        st_op_churnnum = {}
 
         for k, v in self.op_churn.items():
             if v[0] == 0:
                 st_op_churn[k] = -1
             else:
                 st_op_churn[k] = v[1] * 1.0 / v[0]
+            st_op_churnnum[k] = v[1]
 
         for k, v in self.op_clicks.items():
             if v[1] == 0:
-                st_op_clicks[k] = -1
+                st_op_clicks[k] = -1 * v[0]
             else:
                 st_op_clicks[k] = v[0] * 1.0 / v[1]
 
@@ -106,40 +127,45 @@ class Main():
             self.da.statistics_pearson_clicks_stage()))
         self.draw()
 
-        if k is True:
+        if self.k is True:
             # 只对关键动作进行分析
             data = []
             for opid in sorted_keyops[::-1]:
                 op_name = self.op[opid]
                 if self.key_ops[opid] == 0:
                     break
-                # 动作的名称， 动作的留存比， 动作的点击次数比值， 动作属于前期还是后期动作， 动作的平均时间间隔， 动作的重要性
-                print('{}|{:.5f}|{:.2f}|{:.2f}|{:.2f}|{:.4f}'.format(
-                    op_name, st_op_churn[op_name], st_op_clicks[op_name], st_op_stage[op_name], self.op_intervals[op_name], self.key_ops[opid]))
+                # 动作的名称， 动作的留存比， 动作的点击次数比值， 动作属于前期还是后期动作， 动作的平均时间间隔， 动作随后时间间隔的中位数， 动作的重要性
+                verbose = self.op_verbose[op_name] if op_name in self.op_verbose else ""
+                print('{}|{}|{:.5f}|{:.2f}|{:.2f}|{:.2f}|{:.2f}|{:.2f}|{:.4f}'.format(
+                    op_name, verbose, st_op_churn[op_name], st_op_churnnum[op_name], st_op_clicks[op_name], st_op_stage[op_name], self.op_intervals[op_name], self.op_median_intervals[op_name], self.key_ops[opid]))
                 data.append(
                     [op_name,
+                    verbose,
                      "{:.5f}".format(st_op_churn[op_name]),
+                     "{:.2f}".format(st_op_churnnum[op_name]),
                      "{:.2f}".format(st_op_clicks[op_name]),
                      "{:.2f}".format(st_op_stage[op_name]),
                      "{:.2f}".format(self.op_intervals[op_name]),
+                     "{:.2f}".format(self.op_median_intervals[op_name]),
                      "{:.4f}".format(self.key_ops[opid])]
                 )
 
             df = pd.DataFrame(data=data, columns=[
-                '动作', '留存比', '点击次数比', '动作时段', '随后时间间隔', '重要性'])
+                '动作', '动作详细说明', '留存比', '动作流失人数', '点击次数比', '动作时段', '随后时间间隔', '随后中位数时间间隔', '重要性'])
 
             self.writeTo(parent_dir='output', path='',
-                         file_name='csv', pd_file=df)
+                         file_name='xlsx', pd_file=df)
         else:
             # 对全部的动作进行分析
             data = []
             for op_name, _ in st_op_clicks.items():
                 # 动作的名称，动作的留存比，动作的点击次数的比值，动作属于前期还是后期动作，动作的平均时间间隔，动作的中位数时间间隔
-                print('{}|{:.5f}|{:.2f}|{:.2f}|{:.2f}|{:.2f}'.format(
-                    op_name, st_op_churn[op_name], st_op_clicks[op_name], st_op_stage[op_name], self.op_intervals[op_name], self.op_median_intervals[op_name]))
+                print('{}|{:.5f}|{:.2f}|{:.2f}|{:.2f}|{:.2f}|{:.2f}'.format(
+                    op_name, st_op_churn[op_name], st_op_churnnum[op_name], st_op_clicks[op_name], st_op_stage[op_name], self.op_intervals[op_name], self.op_median_intervals[op_name]))
                 data.append(
                     [op_name,
                      "{:.5f}".format(st_op_churn[op_name]),
+                     "{:.2f}".format(st_op_churnnum[op_name]),
                      "{:.2f}".format(st_op_clicks[op_name]),
                      "{:.2f}".format(st_op_stage[op_name]),
                      "{:.2f}".format(self.op_intervals[op_name]),
@@ -147,7 +173,7 @@ class Main():
                 )
 
             df = pd.DataFrame(data=data, columns=[
-                '动作', '留存比', '点击次数比', '动作时段', '随后平均时间间隔', '随后中位数时间间隔'])
+                '动作', '留存比', '动作流失人数', '点击次数比', '动作时段', '随后平均时间间隔', '随后中位数时间间隔'])
 
             self.writeTo(parent_dir='output', path='',
                          file_name='csv', pd_file=df)
